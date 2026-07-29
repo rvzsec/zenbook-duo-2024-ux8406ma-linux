@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+# Detects the display backend to use and prints its name.
+
+if command -v gnome-monitor-config > /dev/null; then
+  echo gnome
+  exit 0
+fi
+
+echo "duo: no supported display backend detected (gnome-monitor-config not found)" >&2
+exit 1

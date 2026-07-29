@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+
+# GNOME/Mutter backend for duo: display layouts, monitor status, input mapping.
+
+function mutter-feature-enabled {
+  dconf read "/org/gnome/mutter/experimental-features"|grep "$1" > /dev/null
+}
+
+# 3k model
+if mutter-feature-enabled variable-refresh-rate ; then
+  preferred_resolution="2880x1800@120.000+vrr"
+else
+  preferred_resolution="2880x1800@120.000"
+fi
+
+if mutter-feature-enabled scale-monitor-framebuffer ; then
+  ui_scale=1.66667
+  # y offset = height of resolution / ui_scale (1800/1.66667... = 1080), but better to check via bustle (recording session bus, you are interested in org.gnome.Mutter.DisplayConfig.ApplyMonitorsConfig call. start recording and configure display in gnome display settings)
+  y_offset=1080
+else
+  ui_scale=2
+  y_offset=1800
+fi
+
+# 1080p model
+#preferred_resolution="1920x1200@60.003"
+#ui_scale=1
+#y_offset=1200
+
+case "$1" in
+  set-layout)
+    case "$2" in
+      top)
+        gnome-monitor-config set \
+          -LpM eDP-1 -m $preferred_resolution -s $ui_scale -x 0 -y 0
+        ;;
+      both)
+        gnome-monitor-config set \
+          -LpM eDP-1 -m $preferred_resolution -s $ui_scale -x 0 -y 0 \
+          -LM  eDP-2 -m $preferred_resolution -s $ui_scale -x 0 -y $y_offset
+        ;;
+      bottom)
+        gnome-monitor-config set \
+          -LpM eDP-2 -m $preferred_resolution -s $ui_scale -x 0 -y 0
+        ;;
+      left-up)
+        gnome-monitor-config set \
+          -LpM eDP-2 -m $preferred_resolution -s $ui_scale -t left  -x 0         -y 0 \
+          -LM  eDP-1 -m $preferred_resolution -s $ui_scale -t left  -x $y_offset -y 0
+        ;;
+      right-up)
+        gnome-monitor-config set \
+          -LM  eDP-1 -m $preferred_resolution -s $ui_scale -t right -x 0         -y 0 \
+          -LpM eDP-2 -m $preferred_resolution -s $ui_scale -t right -x $y_offset -y 0
+        ;;
+      *) echo "Usage: backend-gnome set-layout <top|both|bottom|left-up|right-up>" >&2; exit 1
+    esac
+    ;;
+  external-display-connected)
+    [ "$(gnome-monitor-config list|grep display-name|grep -v 'Built-in display'|wc -l)" != "0" ]
+    ;;
+  active-external-displays)
+    gnome-monitor-config list|grep -vE 'eDP-[12]'|sed -nE 's/Monitor \[ (.+) \] ON/\1/p'
+    ;;
+  status-internal)
+    internal_monitors="$(gnome-monitor-config list|grep -E "Monitor \\[ eDP-. \\] ON")"
+    case "$(echo "$internal_monitors"|grep -v -E "^$"|wc -l)" in
+      0) echo "none" ;;
+      1) case "$(echo "$internal_monitors"|grep ON)" in
+           "Monitor [ eDP-1 ] ON") echo top ;;
+           "Monitor [ eDP-2 ] ON") echo bottom ;;
+         esac ;;
+      2) echo "both" ;;
+    esac
+    ;;
+  map-inputs)
+    for type in tablets touchscreens; do
+      dconf write "/org/gnome/desktop/peripherals/${type}/04f3:425b/output" \
+        "['SDC', '0x419d', '0x00000000', 'eDP-1']"
+      dconf write "/org/gnome/desktop/peripherals/${type}/04f3:425a/output" \
+        "['SDC', '0x419d', '0x00000000', 'eDP-2']"
+    done
+    ;;
+  toggle-bottom-touch)
+    path="/org/gnome/desktop/peripherals/touchscreens/04f3:425a/output"
+    if [ -z "$(dconf read "$path")" ]; then
+      dconf write "$path" "['SDC', '0x419d', '0x00000000', 'eDP-2']"
+    else
+      dconf reset "$path"
+    fi
+    ;;
+  *) echo "Usage: backend-gnome <set-layout|external-display-connected|active-external-displays|status-internal|map-inputs|toggle-bottom-touch>" >&2; exit 1
+esac
