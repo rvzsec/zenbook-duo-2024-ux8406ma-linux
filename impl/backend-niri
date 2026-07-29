@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+
+# niri backend for duo: display layouts, monitor status.
+#
+# Tablet/touch output mapping is not implemented: it is still pending
+# upstream in niri. Mode/scale are taken from the niri config file,
+# this backend only toggles outputs and sets transform/position.
+
+TOP=eDP-1
+BOTTOM=eDP-2
+
+# Logical height of an output, ceiled. niri reports logical sizes rounded
+# down, but its fractional part still counts for overlap checks, and
+# overlapping positions are silently rejected (the output is then placed
+# automatically), so we must ceil. For a 90/270-rotated output this is also
+# its logical width, which is what we need for side-by-side placement.
+function scaled-height { # <output>
+  niri msg --json outputs |
+    jq -r ".[\"$1\"] as \$o | (\$o.modes[\$o.current_mode].height / \$o.logical.scale) | ceil"
+}
+
+case "$1" in
+  set-layout)
+    case "$2" in
+      top)
+        niri msg output $TOP on
+        niri msg output $TOP transform normal
+        niri msg output $TOP position set 0 0
+        niri msg output $BOTTOM off
+        ;;
+      both)
+        niri msg output $TOP on
+        niri msg output $TOP transform normal
+        niri msg output $TOP position set 0 0
+        niri msg output $BOTTOM on
+        niri msg output $BOTTOM transform normal
+        niri msg output $BOTTOM position set 0 "$(scaled-height $TOP)"
+        ;;
+      bottom)
+        niri msg output $BOTTOM on
+        niri msg output $BOTTOM transform normal
+        niri msg output $BOTTOM position set 0 0
+        niri msg output $TOP off
+        ;;
+      left-up|right-up)
+        [ "$2" = left-up ] && transform=90 || transform=270
+        niri msg output $BOTTOM on
+        niri msg output $TOP on
+        niri msg output $BOTTOM transform $transform
+        niri msg output $TOP transform $transform
+        niri msg output $BOTTOM position set 0 0
+        niri msg output $TOP position set "$(scaled-height $BOTTOM)" 0
+        ;;
+      *) echo "Usage: backend-niri set-layout <top|both|bottom|left-up|right-up>" >&2; exit 1
+    esac
+    ;;
+  external-display-connected)
+    [ "$(niri msg --json outputs|jq 'keys - ["'$TOP'", "'$BOTTOM'"]|length')" != "0" ]
+    ;;
+  active-external-displays)
+    niri msg --json outputs |
+      jq -r 'to_entries[]|select(.key != "'$TOP'" and .key != "'$BOTTOM'" and .value.logical != null)|.key'
+    ;;
+  status-internal)
+    outputs="$(niri msg --json outputs)"
+    top_on="$(jq -r ".[\"$TOP\"].logical != null" <<< "$outputs")"
+    bottom_on="$(jq -r ".[\"$BOTTOM\"].logical != null" <<< "$outputs")"
+    if $top_on && $bottom_on; then
+      echo both
+    elif $top_on; then
+      echo top
+    elif $bottom_on; then
+      echo bottom
+    else
+      echo none
+    fi
+    ;;
+  map-inputs|toggle-bottom-touch)
+    echo "duo: this operation is not supported on the niri backend yet (touch/tablet output mapping is still pending upstream in niri)" >&2
+    exit 1
+    ;;
+  *) echo "Usage: backend-niri <set-layout|external-display-connected|active-external-displays|status-internal|map-inputs|toggle-bottom-touch>" >&2; exit 1
+esac

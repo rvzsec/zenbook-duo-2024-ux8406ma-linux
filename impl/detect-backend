@@ -2,10 +2,27 @@
 
 # Detects the display backend to use and prints its name.
 
+case "${XDG_CURRENT_DESKTOP,,}" in
+  *niri*)
+    echo niri
+    exit 0
+    ;;
+  *gnome*)
+    echo gnome
+    exit 0
+    ;;
+esac
+
+# Fall back to probing in case XDG_CURRENT_DESKTOP is not set.
+if [ -n "$NIRI_SOCKET" ]; then
+  echo niri
+  exit 0
+fi
+
 if command -v gnome-monitor-config > /dev/null; then
   echo gnome
   exit 0
 fi
 
-echo "duo: no supported display backend detected (gnome-monitor-config not found)" >&2
+echo "duo: no supported display backend detected" >&2
 exit 1
